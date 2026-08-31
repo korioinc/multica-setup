@@ -18,6 +18,14 @@ from .filesystem import _actual_file, _read_local_json
 from .validation import _brief, _object, _string
 
 
+class _MulticaInvocationError(ExportError):
+    """A read command failure whose safe stderr can drive narrow compatibility."""
+
+    def __init__(self, endpoint: str, returncode: int, detail: str) -> None:
+        self.detail = detail
+        super().__init__(f"{endpoint}: multica exited {returncode}: {detail}")
+
+
 def _multica_config_path() -> Path | None:
     task_root = os.environ.get("MULTICA_TASK_CONFIG_ROOT", "").strip()
     if task_root:
@@ -167,9 +175,7 @@ class MulticaClient:
             if redact_stderr:
                 raise ExportError(f"{endpoint}: multica exited {result.returncode}")
             detail = _brief(result.stderr) or "no error detail"
-            raise ExportError(
-                f"{endpoint}: multica exited {result.returncode}: {detail}"
-            )
+            raise _MulticaInvocationError(endpoint, result.returncode, detail)
         if not expect_json:
             return None
         if not result.stdout.strip():
@@ -234,7 +240,16 @@ class MulticaClient:
         return self.run(["skill", "list"], "skill list", workspace_id)
 
     def skill_get(self, resource_id: str, workspace_id: str) -> Any:
-        return self.run(["skill", "get", resource_id], "skill get", workspace_id)
+        try:
+            return self.run(
+                ["skill", "get", resource_id, "--with-content"],
+                "skill get",
+                workspace_id,
+            )
+        except _MulticaInvocationError as exc:
+            if exc.detail != "unknown flag: --with-content":
+                raise
+            return self.run(["skill", "get", resource_id], "skill get", workspace_id)
 
     def squad_list(self, workspace_id: str) -> Any:
         return self.run(["squad", "list"], "squad list", workspace_id)

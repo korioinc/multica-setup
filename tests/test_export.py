@@ -50,11 +50,15 @@ def command_tokens(argv):
         if argv[index] in {"--output", "--workspace-id"}:
             index += 2
             continue
+        if argv[index] == "--with-content":
+            index += 1
+            continue
         tokens.append(argv[index])
         index += 1
     return tokens
 
 
+with_content = "--with-content" in sys.argv[1:]
 tokens = command_tokens(sys.argv[1:])
 if tokens == ["workspace", "list"]:
     endpoint = "workspace_list"
@@ -88,6 +92,13 @@ state = json.loads(Path(os.environ["FAKE_MULTICA_STATE"]).read_text(encoding="ut
 response = state["responses"][endpoint]
 if "by_selector" in response:
     response = response["by_selector"][tokens[-1]]
+if endpoint == "skill_get" and not with_content:
+    response = dict(response)
+    response.pop("content", None)
+    response["files"] = [
+        {key: value for key, value in item.items() if key != "content"}
+        for item in response["files"]
+    ]
 json.dump(response, sys.stdout, ensure_ascii=False)
 """
 

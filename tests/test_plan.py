@@ -58,11 +58,15 @@ def command_tokens(argv):
         if argv[index] in {"--output", "--workspace-id"}:
             index += 2
             continue
+        if argv[index] == "--with-content":
+            index += 1
+            continue
         tokens.append(argv[index])
         index += 1
     return tokens
 
 
+with_content = "--with-content" in sys.argv[1:]
 tokens = command_tokens(sys.argv[1:])
 resource_id = None
 if tokens == ["workspace", "list"]:
@@ -108,6 +112,13 @@ try:
         response = response["by_selector"][resource_id]
     elif isinstance(response, dict) and "by_id" in response:
         response = response["by_id"][resource_id]
+    if endpoint == "skill_get" and not with_content:
+        response = dict(response)
+        response.pop("content", None)
+        response["files"] = [
+            {key: value for key, value in item.items() if key != "content"}
+            for item in response["files"]
+        ]
 except KeyError:
     print(f"fake multica has no response for {endpoint}", file=sys.stderr)
     raise SystemExit(65)
