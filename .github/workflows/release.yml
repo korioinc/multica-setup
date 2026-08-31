@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
+      - "[0-9]+.[0-9]+.[0-9]+"
 
 concurrency:
   group: release-${{ github.ref }}
@@ -69,11 +69,19 @@ jobs:
         run: |
           python - <<'PY'
           import os
+          import re
 
           from multica_setup import __version__
 
           actual = os.environ["RELEASE_TAG"]
-          expected = f"v{__version__}"
+          expected = __version__
+          stable_semver = re.compile(
+              r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+          )
+          if stable_semver.fullmatch(actual) is None:
+              raise SystemExit(
+                  f"release tag {actual!r} must be an unprefixed stable SemVer"
+              )
           if actual != expected:
               raise SystemExit(
                   f"release tag {actual!r} does not match package version {expected!r}"
@@ -96,7 +104,7 @@ jobs:
             exit 1
           fi
           python -m pip install --force-reinstall "${wheels[0]}"
-          test "$(multica-setup --version)" = "multica-setup ${RELEASE_TAG#v}"
+          test "$(multica-setup --version)" = "multica-setup ${RELEASE_TAG}"
 
       - name: Preserve distributions as workflow artifacts
         uses: actions/upload-artifact@v7
@@ -111,11 +119,13 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          release_title="multica-setup ${RELEASE_TAG}"
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --title "$release_title"
             gh release upload "$RELEASE_TAG" dist/* --clobber
           else
             gh release create "$RELEASE_TAG" dist/* \
               --generate-notes \
-              --title "multica-setup ${RELEASE_TAG#v}" \
+              --title "$release_title" \
               --verify-tag
           fi
