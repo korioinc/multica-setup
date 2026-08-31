@@ -82,6 +82,9 @@ def parse_command(argv):
         if token == "--output":
             index += 2
             continue
+        if token == "--with-content":
+            index += 1
+            continue
         tokens.append(token)
         index += 1
     return tokens, workspace_id
@@ -161,6 +164,7 @@ def maybe_inject_autopilot_assignment(state, operation):
 
 
 state = load_state()
+with_content = "--with-content" in sys.argv[1:]
 tokens, workspace_id = parse_command(sys.argv[1:])
 remote = state["remote"]
 
@@ -214,6 +218,13 @@ elif tokens == ["skill", "list"]:
     ]
 elif tokens[:2] == ["skill", "get"] and len(tokens) == 3:
     response = remote["skills"][tokens[2]]
+    if not with_content:
+        response = dict(response)
+        response.pop("content", None)
+        response["files"] = [
+            {key: value for key, value in item.items() if key != "content"}
+            for item in response["files"]
+        ]
 elif tokens == ["squad", "list"]:
     response = [
         {"id": value["id"], "name": value["name"]}
