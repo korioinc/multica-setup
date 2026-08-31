@@ -1,0 +1,13 @@
+.idea/
+/.cache/
+__pycache__/
+*.py[cod]
+/build/
+/dist/
+/*.egg-info/
+src/agent/**
+src/autopilots/**
+src/quick-actions/**
+src/skills/**
+src/squad/**
+src/workspace/**
