@@ -7,7 +7,6 @@ import os
 import re
 import sys
 from collections.abc import Sequence
-from pathlib import Path
 
 from . import __version__
 from .apply import (
@@ -16,7 +15,7 @@ from .apply import (
     apply_workspace,
 )
 from .client import MulticaClient
-from .context import discover_repository_root
+from .context import current_repository_root
 from .errors import (
     ApplyExecutionError,
     ApplyInterrupted,
@@ -153,11 +152,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(
-    argv: Sequence[str] | None = None,
-    *,
-    repository_root: Path | None = None,
-) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.workspace is None and not _interactive_selection_available():
@@ -165,7 +160,7 @@ def main(
             "--workspace is required when interactive selection is unavailable"
         )
     try:
-        root = repository_root or discover_repository_root()
+        root = current_repository_root()
         selector = args.workspace
         expected_workspace_id = None
         if selector is None:

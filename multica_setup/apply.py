@@ -11,7 +11,7 @@ from typing import Any
 
 from .bindings import write_bindings
 from .client import MulticaClient, _multica_api_config
-from .context import discover_repository_root
+from .context import current_repository_root
 from .domain import (
     DesiredAgent,
     DesiredAutopilot,
@@ -1161,7 +1161,7 @@ def apply_workspace(
     color: bool,
     repository_root: Path | None = None,
 ) -> Plan:
-    repository_root = repository_root or discover_repository_root()
+    repository_root = repository_root or current_repository_root()
     plan = plan_workspace(
         selector,
         expected_workspace_id,
