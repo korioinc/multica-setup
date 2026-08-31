@@ -1,0 +1,121 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.10"
+          - "3.14"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install package
+        run: python -m pip install .
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+  release:
+    name: Build and publish GitHub release
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Install build tooling
+        run: python -m pip install --upgrade build
+
+      - name: Verify tag matches package version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+
+          from multica_setup import __version__
+
+          actual = os.environ["RELEASE_TAG"]
+          expected = f"v{__version__}"
+          if actual != expected:
+              raise SystemExit(
+                  f"release tag {actual!r} does not match package version {expected!r}"
+              )
+          PY
+
+      - name: Build wheel and source distribution
+        run: python -m build
+
+      - name: Verify distributions
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          source_distributions=(dist/*.tar.gz)
+          if [[ ${#wheels[@]} -ne 1 || ${#source_distributions[@]} -ne 1 ]]; then
+            echo "Expected exactly one wheel and one source distribution." >&2
+            exit 1
+          fi
+          python -m pip install --force-reinstall "${wheels[0]}"
+          test "$(multica-setup --version)" = "multica-setup ${RELEASE_TAG#v}"
+
+      - name: Preserve distributions as workflow artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: multica-setup-${{ github.ref_name }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/* --clobber
+          else
+            gh release create "$RELEASE_TAG" dist/* \
+              --generate-notes \
+              --title "multica-setup ${RELEASE_TAG#v}" \
+              --verify-tag
+          fi

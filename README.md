@@ -10,7 +10,17 @@ A tool for exporting Multica workspace agents, skills, squads, public Quick Acti
 
 There are no additional Python runtime dependencies.
 
-## Python package
+## Installation
+
+Homebrew is the recommended installation method. The fully qualified formula name automatically adds the public tap and installs the required Python and Multica CLI dependencies.
+
+```bash
+brew install korioinc/tap/multica-setup
+```
+
+After installation, authenticate the Multica CLI before using `multica-setup`.
+
+### Python package
 
 The synchronization implementation is provided as the `multica_setup` Python package. The installed command searches upward from the current directory for `multica-setup.toml`, then uses the configuration repository's `src/` and `.cache/` directories. You can also specify the repository root with `MULTICA_SETUP_ROOT`.
 
