@@ -12,9 +12,10 @@ There are no additional Python runtime dependencies.
 
 ## Installation
 
-Homebrew is the recommended installation method. The fully qualified formula name automatically adds the public tap and installs the required Python and Multica CLI dependencies.
+Homebrew is the recommended installation method. Install both formulae by their fully qualified names so Homebrew grants trust only to the required items. The `multica-setup` formula keeps Python and the Multica CLI as managed dependencies.
 
 ```bash
+brew install multica-ai/tap/multica
 brew install korioinc/tap/multica-setup
 ```
 
