@@ -25,7 +25,7 @@ from .constants import (
     QUICK_ACTION_SELECTOR_FILE,
     WORKSPACE_FILES,
 )
-from .context import discover_repository_root
+from .context import current_repository_root
 from .domain import ResourceBinding
 from .errors import ExportError
 from .filesystem import (
@@ -737,7 +737,7 @@ def export_workspace(
     *,
     repository_root: Path | None = None,
 ) -> tuple[dict[str, Any], Path, bool, list[str]]:
-    repository_root = repository_root or discover_repository_root()
+    repository_root = repository_root or current_repository_root()
     src = repository_root / "src"
     snapshot = build_snapshot(MulticaClient(), selector, expected_workspace_id)
     bindings = load_bindings(repository_root, snapshot["workspace"]["id"])

@@ -5,11 +5,11 @@ import importlib
 import sys
 from pathlib import Path
 
-repository_root = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(repository_root))
+source_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(source_root))
 
 main = importlib.import_module("multica_setup.cli").main
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(repository_root=repository_root))
+    raise SystemExit(main())

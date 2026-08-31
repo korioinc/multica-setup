@@ -22,7 +22,7 @@ After installation, authenticate the Multica CLI before using `multica-setup`.
 
 ### Python package
 
-The synchronization implementation is provided as the `multica_setup` Python package. The installed command searches upward from the current directory for `multica-setup.toml`, then uses the configuration repository's `src/` and `.cache/` directories. You can also specify the repository root with `MULTICA_SETUP_ROOT`.
+The synchronization implementation is provided as the `multica_setup` Python package. The command always uses the exact current working directory as the configuration repository root, including for the repository's `src/` and `.cache/` directories. It does not search parent directories, so change to the intended repository root before running a command.
 
 When running a local checkout directly, you can use the existing compatibility entry point.
 
@@ -43,7 +43,7 @@ multica-setup --help
 
 ## Usage
 
-Run the following commands from anywhere inside the repository.
+Run the following commands from the repository root. The exact current working directory is used as the repository root.
 
 ### Export
 

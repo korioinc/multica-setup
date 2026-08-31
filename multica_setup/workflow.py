@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .bindings import load_bindings
 from .client import MulticaClient
-from .context import discover_repository_root
+from .context import current_repository_root
 from .domain import Plan
 from .errors import ExportError
 from .local_state import load_desired_state
@@ -23,7 +23,7 @@ def plan_workspace(
     *,
     repository_root: Path | None = None,
 ) -> Plan:
-    repository_root = repository_root or discover_repository_root()
+    repository_root = repository_root or current_repository_root()
     client = MulticaClient()
     workspace = _validate_workspace(client.workspace_get(selector))
     workspace = {
