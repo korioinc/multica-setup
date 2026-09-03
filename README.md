@@ -191,13 +191,13 @@ The API exposes only the current user's private Quick Actions and hides other us
 
 ## Workspace selector format
 
-The workspace's `agent.json`, `squad.json`, `skill.json`, and `quick-action.json` files are JSON arrays that select slugs from the corresponding `src/agent`, `src/squad`, `src/skills`, and `src/quick-actions` directories.
+The workspace's `agent.json`, `squad.json`, `skill.json`, `autopilot.json`, and `quick-action.json` files are JSON arrays that select slugs from the corresponding global definition directories.
 
 - `[]`: Select no resources of this type
 - `["*"]`: Select every definition of this type using the format-level shorthand
 - `["slug-a", "slug-b"]`: Select only the listed definitions as an explicit subset
 
-Mixing `"*"` with slugs, duplicate values, empty strings, unknown slugs, and non-string elements is invalid. `"*"` selects every global definition of that type in the repository, not a workspace-specific set, so explicit slug selectors are recommended when managing multiple workspaces. Because the exporter records a point-in-time snapshot, it writes `[]` when there are no resources and otherwise writes only a sorted, deduplicated array of explicit slugs. Export never writes `["*"]`.
+Mixing `"*"` with slugs, duplicate values, empty strings, unknown slugs, and non-string elements is invalid. `"*"` selects every global definition of that type in the repository, not a workspace-specific set. Its meaning is intentionally dynamic: definitions added to the corresponding global directory become selected by every workspace that retains the wildcard. Export preserves an existing `["*"]` selector for the selected workspace and leaves sibling selectors unchanged. When no prior selector exists, or when the selected workspace previously used explicit slugs, export writes the complete remote snapshot as a sorted, deduplicated explicit list.
 
 The `skills` field in agent `metadata.json` and the `agents` field in squad `metadata.json` are actual relationship lists, not selectors, and therefore do not allow wildcards.
 
@@ -239,9 +239,9 @@ The exporter manages the following six categories as a single export-managed sna
 
 On the first export, none of the managed categories may exist. An existing five-category snapshot is accepted as migration input, and the first successful export adds `quick-actions`. Thereafter, an existing snapshot is merged only when all six categories are actual directories and every workspace directory under `src/workspace/` has a canonical UUID and the required fixed files. If any category is missing or a workspace configuration is incomplete, the command fails without changing the existing tree. There is no `--force` option.
 
-When multiple workspaces exist, export replaces only the selected `src/workspace/<UUID>/` with the new snapshot and preserves sibling workspace directories. `src/agent`, `src/skills`, `src/squad`, `src/autopilots`, and `src/quick-actions` are updated with the selected workspace's definitions while definitions referenced by sibling selectors are preserved. Before publishing, the merged result revalidates selectors and dependencies for every workspace. Resources with existing bindings retain the slug associated with their remote UUID.
+When multiple workspaces exist, export replaces only the selected `src/workspace/<UUID>/` content and leaves sibling workspace files unchanged. `src/agent`, `src/skills`, `src/squad`, `src/autopilots`, and `src/quick-actions` are updated with the selected workspace's definitions while definitions referenced by sibling selectors are preserved. Because wildcard selectors are dynamic, a new global definition also becomes selected by any workspace whose corresponding selector remains `["*"]`. Before publishing, the merged result revalidates selectors and dependencies for every workspace. Resources with existing bindings retain the slug associated with their remote UUID.
 
-If the selected workspace and a sibling share the same slug, the selected export's definition becomes the shared desired state, and the command warns which sibling UUIDs are affected. Publishing fails if a sibling's `"*"` selector would unintentionally select a new global definition, a new unbound slug conflicts with a sibling-only definition, or the merged result breaks a sibling dependency.
+If the selected workspace and a sibling share the same slug, the selected export's definition becomes the shared desired state, and the command warns which sibling UUIDs are affected. Publishing fails if a new unbound slug conflicts with a sibling-only definition or the merged result breaks a workspace dependency.
 
 Re-exporting the same workspace succeeds as a no-op when the snapshot is identical. When the snapshot differs, all six categories are replaced by the new result. Stale paths—including resources deleted from Multica and skill reference files—are therefore removed, and manual edits inside the six categories are overwritten or removed by the next successful export.
 

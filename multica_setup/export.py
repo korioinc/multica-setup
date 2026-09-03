@@ -374,36 +374,32 @@ def merge_existing_snapshot(
         if selected_workspace is not None and _actual_file(
             selected_workspace / selector_file
         ):
-            selected, _ = _selector_slugs(
+            selected, wildcard = _selector_slugs(
                 selected_workspace,
                 selector_file,
                 existing_definitions,
                 f"workspace {selected_workspace_id} {selector_file}",
             )
             target_owned.update(selected)
+            if wildcard:
+                shutil.copy2(
+                    selected_workspace / selector_file,
+                    stage / "workspace" / selected_workspace_id / selector_file,
+                )
 
         sibling_users: dict[str, set[str]] = {}
-        wildcard_siblings: set[str] = set()
         for workspace_id, workspace_directory in sibling_workspaces.items():
             if not _actual_file(workspace_directory / selector_file):
                 continue
-            selected, wildcard = _selector_slugs(
+            selected, _ = _selector_slugs(
                 workspace_directory,
                 selector_file,
                 existing_definitions,
                 f"workspace {workspace_id} {selector_file}",
             )
-            if wildcard:
-                wildcard_siblings.add(workspace_id)
             for slug in selected:
                 sibling_users.setdefault(slug, set()).add(workspace_id)
 
-        new_slugs = set(staged_definitions) - set(existing_definitions)
-        if wildcard_siblings and new_slugs:
-            raise ExportError(
-                f"export would add {category} definitions selected by sibling wildcard "
-                f"workspace {sorted(wildcard_siblings)[0]}; replace '*' with explicit slugs"
-            )
         for slug, workspace_ids in sibling_users.items():
             staged = staged_definitions.get(slug)
             existing = existing_definitions[slug]
