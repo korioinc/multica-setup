@@ -236,6 +236,15 @@ class MulticaClient:
     def agent_get(self, resource_id: str, workspace_id: str) -> Any:
         return self.run(["agent", "get", resource_id], "agent get", workspace_id)
 
+    def agent_env_get(self, resource_id: str, workspace_id: str) -> Any:
+        return self._invoke(
+            ["agent", "env", "get", resource_id],
+            "agent env get (agent owner or workspace owner/admin required)",
+            workspace_id,
+            expect_json=True,
+            redact_stderr=True,
+        )
+
     def skill_list(self, workspace_id: str) -> Any:
         return self.run(["skill", "list"], "skill list", workspace_id)
 

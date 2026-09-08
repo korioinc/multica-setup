@@ -26,6 +26,9 @@ class DesiredAgent:
     provider: str | None
     model: str | None
     max_concurrent_tasks: int | None
+    # None preserves unmanaged settings; an empty tuple explicitly clears them.
+    custom_env: tuple[tuple[str, str], ...] | None = None
+    custom_args: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -124,6 +127,8 @@ class RemoteAgent:
     permission_summary: str
     workspace_public: bool
     archived: bool
+    custom_env: tuple[tuple[str, str], ...] | None = None
+    custom_args: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)

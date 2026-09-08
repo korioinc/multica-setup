@@ -6,6 +6,7 @@ A tool for exporting Multica workspace agents, skills, squads, public Quick Acti
 
 - Python 3.10 or later
 - The `multica` CLI, installed, authenticated, and available in the current shell
+- Agent environment synchronization requires a CLI with `agent env get/set` and `--custom-env-stdin`, and agent ownership or workspace owner/admin access for every managed agent
 - Owner or admin access to the selected workspace when applying changes to public Quick Actions
 
 There are no additional Python runtime dependencies.
@@ -166,11 +167,21 @@ Agent runtime values are stored in `metadata.json` as follows.
   "runtime": "macmini-local",
   "provider": "codex",
   "model": null,
-  "max_concurrent_tasks": 6
+  "max_concurrent_tasks": 6,
+  "custom_env": {
+    "OPENAI_API_KEY": "your-api-key"
+  },
+  "custom_args": ["--extension", "./extensions/my extension.ts"]
 }
 ```
 
 `runtime` prefers the device name in the final parentheses of the runtime display name; if absent, it uses the custom name or runtime name. `provider` preserves the original value in a separate top-level field, and an empty `model` string is normalized to `null`. If no runtime is connected or the runtime cannot be resolved from the list, both `runtime` and `provider` are `null`.
+
+Export includes `custom_env` (a string-to-string JSON object, including actual secret values) and `custom_args` (an ordered array of strings) in every agent's `metadata.json`. Environment values and argument tokens retain their whitespace, empty strings, duplicates, and order where applicable. Use the CLI flags supported by the selected provider; arguments are stored as individual tokens, without shell expansion.
+
+Import uses the existing `plan` and `apply` commands. An explicitly present field manages the entire value: removed environment keys are deleted, `{}` clears all custom environment variables, and `[]` clears custom arguments. Omitting either field preserves that remote setting, so older snapshots remain usable. A JSON `null` is not accepted for these local fields. The reserved environment value `****` cannot be synchronized because Multica treats it as a keep-existing placeholder; use the actual value.
+
+Environment values are read through the audited `agent env get` endpoint. An initial access failure aborts export before replacing the existing snapshot and prevents apply from starting mutations. A later access failure is handled as a partial apply or postflight failure. Newly published agent metadata has owner-only file permissions (`0600`); an identical-snapshot export leaves existing file permissions unchanged. The JSON still contains plaintext secrets and must be handled accordingly. Apply passes environment values through stdin, and plan displays digests for both fields. Reads also occur during apply's approval revalidation and postflight, creating the server's normal environment-access audit records. These environment endpoints require a human login with the permissions described above; apply blocks managed environments in agent/task execution contexts before mutation.
 
 The `agents` entries in squad `metadata.json` reference agent directories through `agent_slug`.
 
@@ -213,7 +224,7 @@ Plan compares the following fields:
 
 - Workspace: `name`, `description`, `issue_prefix`, and context from `instructions.md`
 - Skill: name, description, `SKILL.md`, and the relative path and contents of every support file
-- Agent: name, description, instructions, `(provider, runtime device name)`, model, `max_concurrent_tasks`, and skill relationships
+- Agent: name, description, instructions, `(provider, runtime device name)`, model, `max_concurrent_tasks`, skill relationships, and explicitly managed `custom_env` / `custom_args`
 - Squad: name, description, instructions, leader, members, and per-member role
 - Autopilot: name, `prompt.md`, agent/squad assignee, `execution_mode`, project, subscriber email set, active/paused state, and schedule trigger settings
 - Quick Action: name, description, agent/squad assignee relationship, `prompt.md`, and active state; only public items are compared
@@ -275,7 +286,7 @@ Webhook triggers are completely manually managed. Export does not record webhook
 }
 ```
 
-Agent and squad instructions, workspace context, descriptions, skill bodies and reference files, and Quick Action prompts are stored as raw text. This text may contain secrets or sensitive information, so always review the generated `src/` before storing or committing it.
+Agent `custom_env` values and `custom_args`, agent and squad instructions, workspace context, descriptions, skill bodies and reference files, and Quick Action prompts are stored as raw text. This includes API keys in custom environment variables, so always review the generated `src/` before storing or committing it.
 
 ## Exit codes and scope
 

@@ -270,6 +270,10 @@ def _validate_apply_plan(plan: Plan) -> None:
 def _validate_managed_api_apply_context(plan: Plan) -> None:
     if not any(
         operation.resource_type in {"autopilot", "autopilot-trigger", "quick-action"}
+        or (
+            isinstance(operation.desired, DesiredAgent)
+            and operation.desired.custom_env is not None
+        )
         for operation in plan.operations
     ):
         return
@@ -283,8 +287,8 @@ def _validate_managed_api_apply_context(plan: Plan) -> None:
         )
     ):
         raise ExportError(
-            "apply cannot manage autopilots or public quick actions from an agent "
-            "execution context"
+            "apply cannot manage agent environments, autopilots, or public quick "
+            "actions from an agent execution context"
         )
 
 
@@ -578,6 +582,10 @@ def _agent_update_args(operation: Operation, resource_id: str) -> list[str]:
         args.extend(("--runtime-id", operation.target_runtime_id))
     if "model" in changed:
         args.extend(("--model", desired.model or ""))
+    if "custom_args" in changed:
+        args.extend(
+            ("--custom-args", json.dumps(desired.custom_args, ensure_ascii=False))
+        )
     if "max_concurrent_tasks" in changed:
         assert desired.max_concurrent_tasks is not None
         args.extend(("--max-concurrent-tasks", str(desired.max_concurrent_tasks)))
@@ -614,7 +622,17 @@ def _apply_agent_operation(
             args.extend(("--model", desired.model))
         if desired.max_concurrent_tasks is not None:
             args.extend(("--max-concurrent-tasks", str(desired.max_concurrent_tasks)))
-        raw = client.write_json(args, "agent create", plan.workspace_id)
+        if desired.custom_args is not None:
+            args.extend(
+                ("--custom-args", json.dumps(desired.custom_args, ensure_ascii=False))
+            )
+        input_text = None
+        if desired.custom_env is not None:
+            args.append("--custom-env-stdin")
+            input_text = json.dumps(dict(desired.custom_env), ensure_ascii=False)
+        raw = client.write_json(
+            args, "agent create", plan.workspace_id, input_text=input_text
+        )
         resource_id = _extract_created_id(raw, "agent", "agent create")
     else:
         assert operation.remote_id is not None
@@ -631,6 +649,14 @@ def _apply_agent_operation(
                 update_args,
                 "agent update",
                 plan.workspace_id,
+            )
+        if _operation_change(operation, "custom_env") is not None:
+            assert desired.custom_env is not None
+            client.write_json(
+                ["agent", "env", "set", resource_id, "--custom-env-stdin"],
+                "agent env set",
+                plan.workspace_id,
+                input_text=json.dumps(dict(desired.custom_env), ensure_ascii=False),
             )
     resource_ids[("agent", desired.name)] = resource_id
     if (

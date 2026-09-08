@@ -83,6 +83,9 @@ elif tokens == ["agent", "list", "--include-archived"]:
 elif tokens[:2] == ["agent", "get"] and len(tokens) == 3:
     endpoint = "agent_get"
     resource_id = tokens[2]
+elif tokens[:3] == ["agent", "env", "get"] and len(tokens) == 4:
+    endpoint = "agent_env_get"
+    resource_id = tokens[3]
 elif tokens == ["skill", "list"]:
     endpoint = "skill_list"
 elif tokens[:2] == ["skill", "get"] and len(tokens) == 3:
@@ -313,6 +316,7 @@ class PlanBlackBoxTest(unittest.TestCase):
                 ],
                 "agent_list": active_agents,
                 "agent_list_with_archived": active_agents,
+                "agent_env_get": {"agent_id": AGENT_ID, "custom_env": {}},
                 "agent_get": {
                     "by_id": {
                         AGENT_ID: {

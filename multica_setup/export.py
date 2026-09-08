@@ -74,8 +74,11 @@ def render_stage(stage: Path, snapshot: dict[str, Any]) -> None:
                 "provider": runtime_source["provider"] if runtime_source else None,
                 "model": agent["model"] or None,
                 "max_concurrent_tasks": agent["max_concurrent_tasks"],
+                "custom_env": dict(agent["custom_env"]),
+                "custom_args": list(agent["custom_args"]),
             },
         )
+        (target / "metadata.json").chmod(stat.S_IRUSR | stat.S_IWUSR)
 
     for skill in snapshot["skills"]:
         target = stage / "skills" / skill_slugs[skill["id"]]

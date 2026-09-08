@@ -55,6 +55,27 @@ def _required(record: dict[str, Any], key: str, endpoint: str) -> Any:
     return record[key]
 
 
+def _custom_env(value: Any, field: str) -> tuple[tuple[str, str], ...]:
+    record = _object(value, field)
+    if any(
+        not isinstance(key, str) or not isinstance(item, str)
+        for key, item in record.items()
+    ):
+        raise ExportError(f"{field}: expected environment names and values as strings")
+    if any(item == "****" for item in record.values()):
+        raise ExportError(
+            f"{field}: masked values (****) cannot be synchronized; use actual values"
+        )
+    return tuple(sorted(record.items()))
+
+
+def _custom_args(value: Any, field: str) -> tuple[str, ...]:
+    return tuple(
+        _string(item, f"{field}[{index}]")
+        for index, item in enumerate(_array(value, field))
+    )
+
+
 def _stable_fingerprint(value: Any) -> str:
     payload = json.dumps(
         value,

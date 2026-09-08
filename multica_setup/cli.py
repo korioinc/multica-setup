@@ -248,4 +248,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         "Managed categories: autopilots, agent, quick-actions, skills, squad, "
         "workspace."
     )
+    if snapshot["agents"]:
+        print("Agent metadata includes plaintext custom_env secrets and custom_args.")
     return 0

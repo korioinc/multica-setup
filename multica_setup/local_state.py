@@ -43,6 +43,8 @@ from .skill_documents import (
 from .validation import (
     _array,
     _canonical_uuid,
+    _custom_args,
+    _custom_env,
     _nullable_string,
     _object,
     _required,
@@ -212,7 +214,9 @@ def _load_local_agents(directories: Sequence[Path]) -> dict[str, DesiredAgent]:
             "model",
             "max_concurrent_tasks",
         }
-        _strict_keys(record, required, set(), f"agent {slug}.metadata.json")
+        _strict_keys(
+            record, required, {"custom_env", "custom_args"}, f"agent {slug}.metadata.json"
+        )
         raw_skills = _array(record["skills"], f"agent {slug}.skills")
         skill_slugs: list[str] = []
         for index, raw_skill in enumerate(raw_skills):
@@ -250,6 +254,16 @@ def _load_local_agents(directories: Sequence[Path]) -> dict[str, DesiredAgent]:
                 provider=provider,
                 model=_local_optional_string(record["model"], f"agent {slug}.model"),
                 max_concurrent_tasks=max_tasks,
+                custom_env=(
+                    _custom_env(record["custom_env"], f"agent {slug}.custom_env")
+                    if "custom_env" in record
+                    else None
+                ),
+                custom_args=(
+                    _custom_args(record["custom_args"], f"agent {slug}.custom_args")
+                    if "custom_args" in record
+                    else None
+                ),
             )
         )
     _local_name_index(values, "agent")

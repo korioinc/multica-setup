@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unicodedata
 from collections.abc import Sequence
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import Any
 
 from .client import MulticaClient
@@ -39,6 +39,7 @@ from .skill_documents import (
     _validate_skill_paths,
 )
 from .snapshot import (
+    _validate_agent_env,
     _validate_autopilot_detail,
     _validate_autopilot_list,
     _validate_named_list,
@@ -50,6 +51,7 @@ from .snapshot import (
 from .validation import (
     _array,
     _canonical_uuid,
+    _custom_args,
     _nullable_string,
     _object,
     _required,
@@ -269,6 +271,8 @@ def _validate_plan_agent_detail(
     summary: tuple[str, str],
     workspace_id: str,
     archived: bool,
+    *,
+    manage_custom_args: bool = False,
 ) -> RemoteAgent:
     item = _matching_plan_detail(raw, summary, "agent get")
     raw_runtime_id = item.get("runtime_id")
@@ -313,6 +317,14 @@ def _validate_plan_agent_detail(
         ),
         workspace_public=_workspace_public_permission(item, workspace_id),
         archived=archived,
+        custom_args=(
+            _custom_args(
+                item.get("custom_args") if item.get("custom_args") is not None else [],
+                "agent get.custom_args",
+            )
+            if manage_custom_args
+            else None
+        ),
     )
 
 
@@ -787,27 +799,27 @@ def read_remote_state(
         for match in skill_matches
     )
     agents: list[RemoteAgent] = []
+    desired_agents_by_slug = {agent.slug: agent for agent in desired.agents}
     for match in agent_matches:
-        if match.lifecycle == "active":
-            summary = active_agent_by_id[match.remote_id]
-            agents.append(
-                _validate_plan_agent_detail(
-                    client.agent_get(summary[0], workspace_id),
-                    summary,
-                    workspace_id,
-                    False,
-                )
+        local_agent = desired_agents_by_slug[match.slug]
+        archived = match.lifecycle != "active"
+        summaries = archived_agent_by_id if archived else active_agent_by_id
+        summary = summaries[match.remote_id]
+        agent = _validate_plan_agent_detail(
+            client.agent_get(summary[0], workspace_id),
+            summary,
+            workspace_id,
+            archived,
+            manage_custom_args=local_agent.custom_args is not None,
+        )
+        if local_agent.custom_env is not None:
+            agent = replace(
+                agent,
+                custom_env=_validate_agent_env(
+                    client.agent_env_get(agent.id, workspace_id), agent.id
+                ),
             )
-        else:
-            summary = archived_agent_by_id[match.remote_id]
-            agents.append(
-                _validate_plan_agent_detail(
-                    client.agent_get(summary[0], workspace_id),
-                    summary,
-                    workspace_id,
-                    True,
-                )
-            )
+        agents.append(agent)
     squads = tuple(
         _validate_plan_squad_detail(
             client.squad_get(match.remote_id, workspace_id),

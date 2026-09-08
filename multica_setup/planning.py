@@ -527,6 +527,12 @@ def build_plan(desired: DesiredState, current: RemoteState) -> Plan:
                         ),
                         _field_change("model", None, agent.model, always=True),
                         _field_change(
+                            "custom_env", None, agent.custom_env, sensitive=True
+                        ),
+                        _field_change(
+                            "custom_args", None, agent.custom_args, sensitive=True
+                        ),
+                        _field_change(
                             "max_concurrent_tasks",
                             None,
                             agent.max_concurrent_tasks,
@@ -569,6 +575,26 @@ def build_plan(desired: DesiredState, current: RemoteState) -> Plan:
                 ),
                 _field_change("runtime", current_runtime_pair, desired_runtime_pair),
                 _field_change("model", remote_agent.model, agent.model),
+                (
+                    _field_change(
+                        "custom_env",
+                        remote_agent.custom_env,
+                        agent.custom_env,
+                        sensitive=True,
+                    )
+                    if agent.custom_env is not None
+                    else None
+                ),
+                (
+                    _field_change(
+                        "custom_args",
+                        remote_agent.custom_args,
+                        agent.custom_args,
+                        sensitive=True,
+                    )
+                    if agent.custom_args is not None
+                    else None
+                ),
                 _field_change(
                     "max_concurrent_tasks",
                     remote_agent.max_concurrent_tasks,

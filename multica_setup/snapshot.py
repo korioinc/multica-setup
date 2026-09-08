@@ -17,6 +17,8 @@ from .skill_documents import _validate_skill_paths
 from .validation import (
     _array,
     _canonical_uuid,
+    _custom_args,
+    _custom_env,
     _nullable_string,
     _object,
     _required,
@@ -303,8 +305,24 @@ def _validate_agent_detail(raw: Any, summary: dict[str, str]) -> dict[str, Any]:
         "runtime_id": runtime_id,
         "model": _nullable_string(item.get("model"), "agent get.model"),
         "max_concurrent_tasks": max_tasks,
+        "custom_args": _custom_args(
+            item.get("custom_args") if item.get("custom_args") is not None else [],
+            "agent get.custom_args",
+        ),
         "skill_ids": skill_ids,
     }
+
+
+def _validate_agent_env(raw: Any, resource_id: str) -> tuple[tuple[str, str], ...]:
+    item = _object(raw, "agent env get")
+    returned_id = _canonical_uuid(
+        _required(item, "agent_id", "agent env get"), "agent env get.agent_id"
+    )
+    if returned_id != resource_id:
+        raise ExportError("agent env get: returned a different agent")
+    return _custom_env(
+        _required(item, "custom_env", "agent env get"), "agent env get.custom_env"
+    )
 
 
 def _validate_skill_detail(raw: Any, summary: dict[str, str]) -> dict[str, Any]:
@@ -582,6 +600,10 @@ def build_snapshot(
         _validate_agent_detail(client.agent_get(item["id"], workspace_id), item)
         for item in sorted(agent_summaries, key=lambda value: value["id"])
     ]
+    for agent in agents:
+        agent["custom_env"] = _validate_agent_env(
+            client.agent_env_get(agent["id"], workspace_id), agent["id"]
+        )
     skills = [
         _validate_skill_detail(client.skill_get(item["id"], workspace_id), item)
         for item in sorted(skill_summaries, key=lambda value: value["id"])

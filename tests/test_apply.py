@@ -11,6 +11,7 @@ import textwrap
 import unittest
 
 from quick_action_server import QuickActionServer
+from multica_setup.constants import MANAGED_CATEGORIES
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -59,6 +60,8 @@ import sys
 
 
 STATE_PATH = Path(os.environ["FAKE_MULTICA_STATE"])
+with STATE_PATH.with_suffix(".commands.jsonl").open("a", encoding="utf-8") as log:
+    log.write(json.dumps(sys.argv[1:]) + "\n")
 
 
 def load_state():
@@ -121,6 +124,7 @@ def public_agent(agent):
         "skills": [{"id": value} for value in agent.get("skill_ids", [])],
         "permission_mode": agent.get("permission_mode", "private"),
         "invocation_targets": agent.get("invocation_targets", []),
+        "custom_args": agent.get("custom_args"),
     }
 
 
@@ -184,6 +188,9 @@ elif tokens[:2] == ["workspace", "get"] and len(tokens) == 3:
         and control["workspace_get_count"] == 2
     ):
         remote["workspace"]["issue_prefix"] = "DRIFT"
+    if control.get("launch_setting_drift") and control["workspace_get_count"] == 2:
+        drift = control["launch_setting_drift"]
+        remote["agents"][drift["agent_id"]][drift["field"]] = drift["value"]
     save_state(state)
     response = remote["workspace"]
 elif workspace_id != remote["workspace"]["id"]:
@@ -211,6 +218,12 @@ elif tokens == ["agent", "list"]:
     ]
 elif tokens[:2] == ["agent", "get"] and len(tokens) == 3:
     response = public_agent(remote["agents"][tokens[2]])
+elif tokens[:3] == ["agent", "env", "get"] and len(tokens) == 4:
+    maybe_fail(state, "agent:env:get")
+    response = {
+        "agent_id": tokens[3],
+        "custom_env": remote["agents"][tokens[3]].get("custom_env", {}),
+    }
 elif tokens == ["skill", "list"]:
     response = [
         {"id": value["id"], "name": value["name"]}
@@ -319,6 +332,8 @@ elif tokens[:2] == ["agent", "create"]:
         "permission_mode": permission_mode,
         "invocation_targets": invocation_targets,
         "archived_at": None,
+        "custom_args": json.loads(flag(tokens, "--custom-args", "[]")),
+        "custom_env": json.load(sys.stdin) if "--custom-env-stdin" in tokens else {},
     }
     save_state(state)
     response = {"id": resource_id}
@@ -336,8 +351,25 @@ elif tokens[:2] == ["agent", "update"] and len(tokens) >= 3:
             agent[field] = flag(tokens, option) or None
     if "--max-concurrent-tasks" in tokens:
         agent["max_concurrent_tasks"] = int(flag(tokens, "--max-concurrent-tasks"))
+    if "--custom-args" in tokens:
+        agent["custom_args"] = json.loads(flag(tokens, "--custom-args"))
     save_state(state)
     response = public_agent(agent)
+elif tokens[:3] == ["agent", "env", "set"] and len(tokens) >= 4:
+    maybe_fail(state, "agent:env:set")
+    if "--custom-env-stdin" not in tokens:
+        print("fake requires environment through stdin", file=sys.stderr)
+        raise SystemExit(64)
+    agent = remote["agents"][tokens[3]]
+    updates = json.load(sys.stdin)
+    previous = agent.get("custom_env", {})
+    agent["custom_env"] = {
+        key: previous[key] if value == "****" and key in previous else value
+        for key, value in updates.items()
+        if value != "****" or key in previous
+    }
+    save_state(state)
+    response = {"agent_id": tokens[3], "custom_env": agent["custom_env"]}
 elif tokens[:3] == ["agent", "skills", "set"] and len(tokens) >= 4:
     maybe_fail(state, "agent:skills:set")
     raw_ids = flag(tokens, "--skill-ids", "")
@@ -647,8 +679,11 @@ class ApplyBlackBoxTest(unittest.TestCase):
     def read_state(self) -> dict[str, object]:
         return json.loads(self.state_path.read_text(encoding="utf-8"))
 
-    def run_apply(
-        self, *, auto_approve: bool, input_text: str | None = None
+    def run_command(
+        self,
+        *arguments: str,
+        input_text: str | None = None,
+        environment_updates: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
         environment["PYTHONPATH"] = os.pathsep.join(
@@ -662,11 +697,10 @@ class ApplyBlackBoxTest(unittest.TestCase):
             self, "quick_action_server_url", self.quick_action_server.url
         )
         environment["MULTICA_TOKEN"] = "test-token"
-        command = [str(self.cli), "apply", "--workspace", WORKSPACE_ID]
-        if auto_approve:
-            command.append("--auto-approve")
+        if environment_updates:
+            environment.update(environment_updates)
         return subprocess.run(
-            command,
+            [str(self.cli), *arguments],
             cwd=self.repo,
             env=environment,
             input=input_text,
@@ -674,6 +708,197 @@ class ApplyBlackBoxTest(unittest.TestCase):
             text=True,
             check=False,
         )
+
+    def run_apply(
+        self, *, auto_approve: bool, input_text: str | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        arguments = ["apply", "--workspace", WORKSPACE_ID]
+        if auto_approve:
+            arguments.append("--auto-approve")
+        return self.run_command(*arguments, input_text=input_text)
+
+    def test_exported_launch_settings_survive_create_update_and_restore(self) -> None:
+        self.write_desired_state()
+        for category in MANAGED_CATEGORIES:
+            (self.repo / "src" / category).mkdir(exist_ok=True)
+        metadata_path = self.repo / "src" / "agent" / "desired-agent" / "metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["provider"] = "pi"
+        self._write_json(metadata_path, metadata)
+        pi_state = self.base_state()
+        pi_state["remote"]["runtimes"][0].update(
+            name="Pi (macmini-local)", provider="pi"
+        )
+        self.write_state(pi_state)
+        self.run_apply(auto_approve=True)
+        state = self.read_state()
+        source_environment = {
+            "OPENAI_API_KEY": "roundtrip-credential-kept-out-of-process-arguments",
+            "MULTILINE": "line one\nline two",
+            "EMPTY": "",
+        }
+        source_arguments = [
+            "--model", "provider/model", "--append-system-prompt", " two words ",
+            "--append-system-prompt", "",
+        ]
+        source_agent = state["remote"]["agents"][DESIRED_AGENT_ID]
+        source_agent["custom_env"] = source_environment
+        source_agent["custom_args"] = source_arguments
+        self.write_state(state)
+
+        results = [self.run_command("export", "--workspace", WORKSPACE_ID)]
+        # The exported JSON is the only source for the newly created agent.
+        shutil.rmtree(self.repo / ".cache")
+        self.write_state(pi_state)
+        results.append(self.run_apply(auto_approve=True))
+        created = self.read_state()["remote"]["agents"].get(DESIRED_AGENT_ID, {})
+        self.assertEqual(
+            source_environment, created.get("custom_env"), results[-1].stderr
+        )
+        self.assertEqual(
+            source_arguments, created.get("custom_args"), results[-1].stderr
+        )
+
+        for archived in (False, True):
+            with self.subTest(archived=archived):
+                state = self.read_state()
+                changed = state["remote"]["agents"][DESIRED_AGENT_ID]
+                changed["custom_env"] = {"STALE": "remove this value"}
+                changed["custom_args"] = ["--stale"]
+                changed["archived_at"] = "2026-09-01T00:00:00Z" if archived else None
+                self.write_state(state)
+
+                results.append(self.run_apply(auto_approve=True))
+
+                restored = self.read_state()["remote"]["agents"].get(DESIRED_AGENT_ID, {})
+                self.assertEqual(source_environment, restored.get("custom_env"))
+                self.assertEqual(source_arguments, restored.get("custom_args"))
+                self.assertIsNone(restored.get("archived_at", "missing"))
+
+        credential = source_environment["OPENAI_API_KEY"]
+        for result in results:
+            self.assertNotIn(credential, result.stdout + result.stderr)
+        self.assertNotIn(
+            credential,
+            self.state_path.with_suffix(".commands.jsonl").read_text(encoding="utf-8"),
+        )
+
+    def test_omitted_launch_settings_preserve_values_and_explicit_empty_clears(self) -> None:
+        self.write_desired_state()
+        self.write_state(self.base_state())
+        self.run_apply(auto_approve=True)
+        state = self.read_state()
+        existing_environment = {"OPENAI_API_KEY": "existing-credential"}
+        existing_arguments = ["--model", "keep this value"]
+        agent = state["remote"]["agents"][DESIRED_AGENT_ID]
+        agent["custom_env"] = existing_environment
+        agent["custom_args"] = existing_arguments
+        self.write_state(state)
+        metadata_path = self.repo / "src" / "agent" / "desired-agent" / "metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["description"] = "An unrelated edit must preserve unmanaged settings."
+        self._write_json(metadata_path, metadata)
+
+        self.run_apply(auto_approve=True)
+
+        preserved = self.read_state()["remote"]["agents"][DESIRED_AGENT_ID]
+        self.assertEqual(metadata["description"], preserved["description"])
+        self.assertEqual(existing_environment, preserved.get("custom_env"))
+        self.assertEqual(existing_arguments, preserved.get("custom_args"))
+
+        metadata.update(custom_env={}, custom_args=[])
+        self._write_json(metadata_path, metadata)
+        self.run_apply(auto_approve=True)
+
+        cleared = self.read_state()["remote"]["agents"][DESIRED_AGENT_ID]
+        self.assertEqual({}, cleared.get("custom_env"))
+        self.assertEqual([], cleared.get("custom_args"))
+
+    def test_launch_setting_changes_during_approval_preserve_remote_edits(self) -> None:
+        self.write_desired_state()
+        self.write_state(self.base_state())
+        self.run_apply(auto_approve=True)
+        baseline = self.read_state()
+        agent = baseline["remote"]["agents"][DESIRED_AGENT_ID]
+        agent["custom_env"] = {"OPENAI_API_KEY": "original-credential"}
+        agent["custom_args"] = ["--original"]
+        metadata_path = self.repo / "src" / "agent" / "desired-agent" / "metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata.update(
+            custom_env={"OPENAI_API_KEY": "desired-credential"},
+            custom_args=["--desired"],
+        )
+        self._write_json(metadata_path, metadata)
+
+        for field, concurrent_value in (
+            ("custom_env", {"OPENAI_API_KEY": "concurrently-rotated-credential"}),
+            ("custom_args", ["--concurrent"]),
+        ):
+            with self.subTest(field=field):
+                state = json.loads(json.dumps(baseline))
+                state["control"] = {
+                    "launch_setting_drift": {
+                        "agent_id": DESIRED_AGENT_ID,
+                        "field": field,
+                        "value": concurrent_value,
+                    }
+                }
+                self.write_state(state)
+
+                self.run_apply(auto_approve=False, input_text="yes\n")
+
+                expected_agent = dict(agent)
+                expected_agent[field] = concurrent_value
+                actual_agent = self.read_state()["remote"]["agents"][DESIRED_AGENT_ID]
+                self.assertEqual(
+                    expected_agent["custom_env"], actual_agent.get("custom_env")
+                )
+                self.assertEqual(
+                    expected_agent["custom_args"], actual_agent.get("custom_args")
+                )
+
+    def test_environment_read_failure_prevents_overwriting_remote_settings(self) -> None:
+        self.write_desired_state()
+        self.write_state(self.base_state())
+        self.run_apply(auto_approve=True)
+        state = self.read_state()
+        agent = state["remote"]["agents"][DESIRED_AGENT_ID]
+        agent["custom_env"] = {"OPENAI_API_KEY": "existing-credential"}
+        agent["custom_args"] = ["--existing"]
+        state["control"]["fail_on"] = "agent:env:get"
+        self.write_state(state)
+        metadata_path = self.repo / "src" / "agent" / "desired-agent" / "metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata.update(custom_env={}, custom_args=[])
+        self._write_json(metadata_path, metadata)
+
+        self.run_apply(auto_approve=True)
+
+        self.assertEqual(state["remote"], self.read_state()["remote"])
+
+    def test_agent_context_cannot_create_an_environment_managed_agent(self) -> None:
+        self.write_desired_state()
+        workspace = self.repo / "src" / "workspace" / WORKSPACE_ID
+        self._write_json(workspace / "skill.json", [])
+        self._write_json(workspace / "squad.json", [])
+        metadata_path = self.repo / "src" / "agent" / "desired-agent" / "metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata.update(skills=[], custom_env={"OPENAI_API_KEY": "protected-credential"})
+        self._write_json(metadata_path, metadata)
+
+        for principal in ("MULTICA_AGENT_ID", "MULTICA_TASK_ID"):
+            with self.subTest(principal=principal):
+                state = self.base_state()
+                self.write_state(state)
+                context = {"MULTICA_AGENT_ID": "", "MULTICA_TASK_ID": ""}
+                context[principal] = "unprivileged-agent-or-task"
+
+                self.run_command(
+                    "apply", "--workspace", WORKSPACE_ID, "--auto-approve",
+                    environment_updates=context,
+                )
+
+                self.assertEqual(state["remote"], self.read_state()["remote"])
 
     def test_auto_approved_apply_converges_created_relationships_and_prunes_stale_state(
         self,

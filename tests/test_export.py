@@ -70,6 +70,8 @@ elif tokens == ["agent", "list"]:
     endpoint = "agent_list"
 elif tokens[:2] == ["agent", "get"] and len(tokens) == 3:
     endpoint = "agent_get"
+elif tokens[:3] == ["agent", "env", "get"] and len(tokens) == 4:
+    endpoint = "agent_env_get"
 elif tokens == ["skill", "list"]:
     endpoint = "skill_list"
 elif tokens[:2] == ["skill", "get"] and len(tokens) == 3:
@@ -89,6 +91,9 @@ else:
     raise SystemExit(64)
 
 state = json.loads(Path(os.environ["FAKE_MULTICA_STATE"]).read_text(encoding="utf-8"))
+if state.get("fail_on") == endpoint:
+    print(state.get("failure_message", "injected read failure"), file=sys.stderr)
+    raise SystemExit(70)
 response = state["responses"][endpoint]
 if "by_selector" in response:
     response = response["by_selector"][tokens[-1]]
@@ -135,6 +140,7 @@ def valid_state() -> dict[str, object]:
                 "skills": [{"id": SKILL_ID}],
                 "custom_environment": {"API_KEY": SECRET_VALUES[1]},
             },
+            "agent_env_get": {"agent_id": AGENT_ID, "custom_env": {}},
             "skill_list": [{"id": SKILL_ID, "name": "Review Skill"}],
             "skill_get": {
                 "id": SKILL_ID,
@@ -292,6 +298,27 @@ class ExportBlackBoxTest(unittest.TestCase):
             self.assertIn(marker, exported_text)
         for secret in SECRET_VALUES:
             self.assertNotIn(secret, exported_text)
+
+    def test_environment_read_failure_preserves_exported_credentials_and_source(self) -> None:
+        state = valid_state()
+        state["responses"]["agent_env_get"]["custom_env"] = {
+            "OPENAI_API_KEY": "credential-in-the-existing-snapshot"
+        }
+        self.write_state(state)
+        self.run_export()
+        load_desired_state(self.repo, WORKSPACE_ID)
+        source = self.repo / "src"
+        before = self.snapshot_bytes(source)
+        failure_secret = "credential-returned-in-provider-error"
+        state["fail_on"] = "agent_env_get"
+        state["failure_message"] = failure_secret
+        state["responses"]["agent_get"]["description"] = "must not replace previous data"
+        self.write_state(state)
+
+        result = self.run_export()
+
+        self.assertEqual(before, self.snapshot_bytes(source))
+        self.assertNotIn(failure_secret, result.stdout + result.stderr)
 
     def test_publish_failure_restores_the_previous_managed_snapshot(self) -> None:
         source = Path(self._temporary_directory.name) / "managed"
